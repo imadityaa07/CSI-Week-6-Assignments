@@ -1,0 +1,25 @@
+{
+	"name": "DailyTrigger",
+	"properties": {
+		"description": "Daily Trigger – for regular incremental loads  for monthly reporting/batch",
+		"annotations": [],
+		"runtimeState": "Started",
+		"pipelines": [
+			{
+				"pipelineReference": {
+					"referenceName": "IncrementalFTPtoSQL",
+					"type": "PipelineReference"
+				}
+			}
+		],
+		"type": "ScheduleTrigger",
+		"typeProperties": {
+			"recurrence": {
+				"frequency": "Day",
+				"interval": 1,
+				"startTime": "2025-07-14T04:46:00",
+				"timeZone": "India Standard Time"
+			}
+		}
+	}
+}

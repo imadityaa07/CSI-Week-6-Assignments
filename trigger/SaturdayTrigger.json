@@ -1,0 +1,25 @@
+{
+	"name": "SaturdayTrigger",
+	"properties": {
+		"description": "every Saturday triger",
+		"annotations": [],
+		"runtimeState": "Started",
+		"pipelines": [
+			{
+				"pipelineReference": {
+					"referenceName": "IncrementalFTPtoSQL",
+					"type": "PipelineReference"
+				}
+			}
+		],
+		"type": "ScheduleTrigger",
+		"typeProperties": {
+			"recurrence": {
+				"frequency": "Day",
+				"interval": 7,
+				"startTime": "2025-07-19T00:05:00",
+				"timeZone": "India Standard Time"
+			}
+		}
+	}
+}

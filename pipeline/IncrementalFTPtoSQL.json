@@ -1,0 +1,249 @@
+{
+	"name": "IncrementalFTPtoSQL",
+	"properties": {
+		"activities": [
+			{
+				"name": "GetWatermark",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": "SELECT LastLoadedDate FROM Watermark WHERE TableName = 'Products'\n",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "AzureSqlTable1",
+						"type": "DatasetReference"
+					}
+				}
+			},
+			{
+				"name": "SetWatermark",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "GetWatermark",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "LastWatermark",
+					"value": {
+						"value": "@activity('GetWatermark').output.firstRow.LastLoadedDate\n",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "CopyFTPtoStaging",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "SetWatermark",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 3,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert",
+						"sqlWriterUseTableLock": false
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"name": "ID",
+									"type": "Int32",
+									"physicalType": "int"
+								},
+								"sink": {
+									"name": "ID",
+									"type": "Int32",
+									"physicalType": "int"
+								}
+							},
+							{
+								"source": {
+									"name": "Name",
+									"type": "String",
+									"physicalType": "nvarchar"
+								},
+								"sink": {
+									"name": "Name",
+									"type": "String",
+									"physicalType": "nvarchar"
+								}
+							},
+							{
+								"source": {
+									"name": "Category",
+									"type": "String",
+									"physicalType": "nvarchar"
+								},
+								"sink": {
+									"name": "Category",
+									"type": "String",
+									"physicalType": "nvarchar"
+								}
+							},
+							{
+								"source": {
+									"name": "Price",
+									"type": "Double",
+									"physicalType": "float"
+								},
+								"sink": {
+									"name": "Price",
+									"type": "Double",
+									"physicalType": "float"
+								}
+							},
+							{
+								"source": {
+									"name": "LastModifiedDate",
+									"type": "DateTime",
+									"physicalType": "datetime"
+								},
+								"sink": {
+									"name": "LastModifiedDate",
+									"type": "DateTime",
+									"physicalType": "datetime"
+								}
+							}
+						],
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "AzureSQL_Products_Dataset",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "Azure_Staging_dataset",
+						"type": "DatasetReference"
+					}
+				]
+			},
+			{
+				"name": "MergeAndUpdateWatermark",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "CopyFTPtoStaging",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 3,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "AzureSql_Link",
+					"type": "LinkedServiceReference"
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "Query",
+							"text": "-- Insert new records into main Products table\nINSERT INTO Products (ID, Name, Category, Price, LastModifiedDate)\nSELECT ID, Name, Category, Price, LastModifiedDate\nFROM Products_Staging\nWHERE LastModifiedDate > (SELECT LastLoadedDate FROM Watermark WHERE TableName = 'Products');\n\n-- Update watermark to latest value from this load\nUPDATE Watermark\nSET LastLoadedDate = (SELECT MAX(LastModifiedDate) FROM Products_Staging)\nWHERE TableName = 'Products';\n\n-- Optional: Clean up staging table\nTRUNCATE TABLE Products_Staging;\n"
+						}
+					],
+					"scriptBlockExecutionTimeout": "02:00:00"
+				}
+			},
+			{
+				"name": "RunOnlyIfLastSaturday",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "GetWatermark",
+						"dependencyConditions": [
+							"Completed"
+						]
+					},
+					{
+						"activity": "MergeAndUpdateWatermark",
+						"dependencyConditions": [
+							"Completed"
+						]
+					},
+					{
+						"activity": "SetWatermark",
+						"dependencyConditions": [
+							"Completed"
+						]
+					},
+					{
+						"activity": "CopyFTPtoStaging",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@and(\n  equals(dayOfWeek(utcnow()), 6),\n  greaterOrEquals(day(utcnow()), 24)\n)\n",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"variables": {
+			"LastWatermark": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2025-07-14T05:09:52Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
